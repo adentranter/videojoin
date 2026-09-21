@@ -18,7 +18,13 @@ export async function POST(req: Request) {
   if (!parsed.success) return Response.json({ error: "Invalid request" }, { status: 400 });
   const b = parsed.data;
 
-  const trimEnd = Math.min(b.trimEnd, EVENT.maxDuration + 1);
+  // +1s tolerance: the browser's timer can run slightly past the hard stop.
+  const limit = EVENT.maxDuration + 1;
+  const length = b.trimEnd - b.trimStart;
+  if (b.trimEnd > limit + 1 || length > limit) {
+    return Response.json({ error: `Messages can be at most ${EVENT.maxDuration} seconds` }, { status: 400 });
+  }
+  const trimEnd = Math.min(b.trimEnd, limit);
   if (trimEnd - b.trimStart < EVENT.minDuration - 0.01) {
     return Response.json({ error: "Clip too short" }, { status: 400 });
   }

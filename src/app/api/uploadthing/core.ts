@@ -6,7 +6,7 @@ import { getByToken } from "@/lib/db";
 const f = createUploadthing();
 
 export const ourFileRouter = {
-  clip: f({ video: { maxFileSize: "64MB", maxFileCount: 1 } })
+  clip: f({ video: { maxFileSize: "32MB", maxFileCount: 1 } })
     .input(z.object({ token: z.string().min(1).max(64) }))
     .middleware(async ({ input }) => {
       // Only holders of a valid recording link may upload.

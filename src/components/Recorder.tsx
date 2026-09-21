@@ -13,6 +13,8 @@ type Props = {
   alreadySubmitted: boolean;
   maxDuration: number;
   minDuration: number;
+  targetMin: number;
+  targetMax: number;
 };
 
 const MIME_CANDIDATES = [
@@ -44,7 +46,15 @@ function cameraError(e: unknown): string {
   return "Something went wrong starting the camera. Please try again.";
 }
 
-export default function Recorder({ token, initialName, alreadySubmitted, maxDuration, minDuration }: Props) {
+export default function Recorder({
+  token,
+  initialName,
+  alreadySubmitted,
+  maxDuration,
+  minDuration,
+  targetMin,
+  targetMax,
+}: Props) {
   const [stage, setStage] = useState<Stage>("intro");
   const [error, setError] = useState<string | null>(null);
   const [count, setCount] = useState(3);
@@ -345,7 +355,11 @@ export default function Recorder({ token, initialName, alreadySubmitted, maxDura
   if (stage === "intro") {
     return (
       <div className="card center">
-        <p className="lead">Record a short video message (up to {maxDuration} seconds).</p>
+        <p className="lead">Record a short video message.</p>
+        <p>
+          Aim for <strong>{targetMin}–{targetMax} seconds</strong>. Short and heartfelt is perfect (it stops
+          automatically at {maxDuration}).
+        </p>
         {alreadySubmitted && (
           <p className="note">You&apos;ve already sent a message. Recording again will replace it.</p>
         )}
@@ -371,9 +385,27 @@ export default function Recorder({ token, initialName, alreadySubmitted, maxDura
           )}
         </div>
         {stage === "recording" && (
-          <div className="bar">
-            <div style={{ width: `${(elapsed / maxDuration) * 100}%` }} />
-          </div>
+          <>
+            <div className="bar zone">
+              <span
+                className="target"
+                style={{ left: `${(targetMin / maxDuration) * 100}%`, width: `${((targetMax - targetMin) / maxDuration) * 100}%` }}
+              />
+              <div className={elapsed > targetMax ? "over" : ""} style={{ width: `${(elapsed / maxDuration) * 100}%` }} />
+            </div>
+            <p className={`nudge${elapsed > targetMax ? " warn" : ""}`}>
+              {elapsed < targetMin
+                ? `Aim for ${targetMin}–${targetMax} seconds`
+                : elapsed <= targetMax
+                  ? "Lovely, this is a great length 👍"
+                  : `Time to wrap up! Recording stops at ${fmt(maxDuration)}`}
+            </p>
+          </>
+        )}
+        {stage === "ready" && (
+          <p className="hint center">
+            Aim for {targetMin}–{targetMax} seconds. It stops automatically at {maxDuration}.
+          </p>
         )}
         <div className="row center">
           {stage === "ready" && (
@@ -429,6 +461,12 @@ export default function Recorder({ token, initialName, alreadySubmitted, maxDura
           seek(v - 0.05);
         }}
       />
+
+      {trim[1] - trim[0] > targetMax && (
+        <p className="note">
+          That&apos;s a long one! Try trimming it to under {targetMax} seconds so everyone&apos;s message gets its moment.
+        </p>
+      )}
 
       <label className="field">
         Your name

@@ -19,6 +19,8 @@ export default async function RecordPage({ params }: { params: Promise<{ token: 
         alreadySubmitted={!!sub.fileKey}
         maxDuration={EVENT.maxDuration}
         minDuration={EVENT.minDuration}
+        targetMin={EVENT.targetMin}
+        targetMax={EVENT.targetMax}
       />
     </main>
   );

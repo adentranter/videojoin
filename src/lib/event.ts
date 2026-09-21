@@ -2,7 +2,9 @@
 export const EVENT = {
   title: "Mum & Dad's 50th Anniversary",
   description: "Record a short video message for them.",
-  maxDuration: 30,
+  maxDuration: 30, // hard stop
   minDuration: 1,
+  targetMin: 10, // the length we nudge people toward
+  targetMax: 20,
   finalFilename: "parents-50th.mp4",
 };
