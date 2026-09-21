@@ -34,18 +34,110 @@ type Build = {
   finishedAt: string | null;
 };
 
+function NameEditor({
+  value,
+  prefix,
+  emptyLabel = "(no name)",
+  onSave,
+}: {
+  value: string;
+  prefix?: string;
+  emptyLabel?: string;
+  onSave: (name: string) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const cancel = useRef(false);
+
+  useEffect(() => setDraft(value), [value]);
+
+  async function save() {
+    if (cancel.current) {
+      cancel.current = false;
+      return;
+    }
+    const name = draft.trim();
+    if (!name) {
+      setError("Name required");
+      return;
+    }
+    if (name === value) {
+      setEditing(false);
+      setError(null);
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      await onSave(name);
+      setEditing(false);
+    } catch {
+      setError("Couldn't save");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        className="name-btn"
+        title="Edit name"
+        onClick={() => {
+          setDraft(value);
+          setError(null);
+          setEditing(true);
+        }}
+      >
+        {prefix}
+        {value || emptyLabel}
+      </button>
+    );
+  }
+
+  return (
+    <span className="name-edit">
+      <input
+        type="text"
+        value={draft}
+        maxLength={80}
+        autoFocus
+        disabled={saving}
+        aria-label="Name"
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => void save()}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+          if (e.key === "Escape") {
+            cancel.current = true;
+            setDraft(value);
+            setError(null);
+            setEditing(false);
+          }
+        }}
+      />
+      {error && <span className="err">{error}</span>}
+    </span>
+  );
+}
+
 function Row({
   s,
   index,
   current,
   onPlay,
   onDelete,
+  onRename,
 }: {
   s: Sub;
   index: number;
   current: boolean;
   onPlay: () => void;
   onDelete: () => void;
+  onRename: (name: string) => Promise<void>;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: s.id });
   return (
@@ -58,7 +150,9 @@ function Row({
         ⠿
       </button>
       <span className="idx">{index + 1}</span>
-      <span className="who">✓ {s.name || "(no name)"}</span>
+      <span className="who">
+        <NameEditor value={s.name} prefix="✓ " onSave={onRename} />
+      </span>
       <span className="dur">{fmt(s.end - s.start)}</span>
       <span className="row gap">
         <button className="btn small" onClick={onPlay} aria-label={`Play ${s.name}`}>
@@ -167,6 +261,7 @@ export default function AdminPanel({
 }) {
   const router = useRouter();
   const [items, setItems] = useState(submissions);
+  const [pendingItems, setPendingItems] = useState(pending);
   const [build, setBuild] = useState(initialBuild);
   const [buildError, setBuildError] = useState<string | null>(null);
   const [orderError, setOrderError] = useState<string | null>(null);
@@ -176,6 +271,7 @@ export default function AdminPanel({
 
   // Pick up server changes (deletes, new submissions) after router.refresh().
   useEffect(() => setItems(submissions), [submissions]);
+  useEffect(() => setPendingItems(pending), [pending]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -245,6 +341,17 @@ export default function AdminPanel({
     setTimeout(() => setCopied(null), 1500);
   }
 
+  async function rename(id: string, name: string) {
+    const r = await fetch(`/api/admin/clips/${id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name }),
+    }).catch(() => null);
+    if (!r?.ok) throw new Error("save failed");
+    setItems((prev) => prev.map((i) => (i.id === id ? { ...i, name } : i)));
+    setPendingItems((prev) => prev.map((i) => (i.id === id ? { ...i, name } : i)));
+  }
+
   async function createLink(e: React.FormEvent) {
     e.preventDefault();
     if (!linkName.trim()) return;
@@ -303,7 +410,7 @@ export default function AdminPanel({
 
       {previewIdx !== null && <SequencePlayer items={items} index={previewIdx} onIndex={setPreviewIdx} />}
 
-      <p className="hint">Drag ⠿ to change the order. The final video follows this order.</p>
+      <p className="hint">Drag ⠿ to change the order. Click a name to edit it. The final video follows this order.</p>
       {orderError && <p className="err">{orderError}</p>}
 
       <DndContext id="clips" sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
@@ -317,6 +424,7 @@ export default function AdminPanel({
                 current={previewIdx === i}
                 onPlay={() => setPreviewIdx(i)}
                 onDelete={() => remove(s)}
+                onRename={(name) => rename(s.id, name)}
               />
             ))}
             {items.length === 0 && <li className="hint">No messages yet.</li>}
@@ -365,9 +473,11 @@ export default function AdminPanel({
           <button className="btn">Create &amp; copy link</button>
         </form>
         <ul className="list">
-          {pending.map((p) => (
+          {pendingItems.map((p) => (
             <li key={p.id} className="row between">
-              <span>{p.name}</span>
+              <span className="who">
+                <NameEditor value={p.name} onSave={(name) => rename(p.id, name)} />
+              </span>
               <span className="row gap">
                 <button className="btn small" onClick={() => copy(p.token)}>
                   {copied === p.token ? "Copied ✓" : "Copy link"}

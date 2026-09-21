@@ -156,6 +156,12 @@ export async function saveSubmission(
   return { replacedKey: prev.fileKey && prev.fileKey !== v.fileKey ? prev.fileKey : null };
 }
 
+export async function updateName(id: string, name: string): Promise<Submission | null> {
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
+  const rows = await q<SubmissionRow>("update submissions set name=$2 where id=$1 returning *", [id, name]);
+  return rows[0] ? toSubmission(rows[0]) : null;
+}
+
 export async function deleteSubmission(id: string): Promise<Submission | null> {
   const rows = await q<SubmissionRow>("delete from submissions where id = $1 returning *", [id]);
   return rows[0] ? toSubmission(rows[0]) : null;

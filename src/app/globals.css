@@ -108,7 +108,15 @@ input[type="text"], input[type="password"] {
 /* admin */
 .list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .list > li { padding: 12px 6px; border-bottom: 1px solid var(--line); }
-.who { font-weight: 600; flex: 1; min-width: 8rem; }
+.who { font-weight: 600; flex: 1; min-width: 8rem; display: flex; align-items: center; }
+.name-btn {
+  appearance: none; border: 0; background: none; font: inherit; font-weight: 600;
+  color: inherit; padding: 2px 4px; margin: -2px -4px; border-radius: 6px;
+  cursor: text; text-align: left;
+}
+.name-btn:hover { background: #fff; box-shadow: inset 0 0 0 1px var(--line); }
+.name-edit { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; }
+.name-edit input { padding: 6px 10px; font-weight: 600; }
 .dur { color: var(--muted); font-variant-numeric: tabular-nums; }
 .preview { width: 100%; max-height: 60vh; margin: 10px 0; border-radius: 12px; background: #000; }
 
