@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "react";
 import { useUploadThing } from "@/lib/uploadthing";
 import { fmt } from "@/lib/format";
 import TrimSlider from "./TrimSlider";
@@ -24,9 +24,31 @@ const MIME_CANDIDATES = [
   "video/mp4",
 ];
 
+/** Matches UploadThing clip maxFileSize. Phone videos are often larger than 32MB. */
+const MAX_FILE_BYTES = 128 * 1024 * 1024;
+
 function pickMime(): string {
   if (typeof MediaRecorder === "undefined") return "";
   return MIME_CANDIDATES.find((m) => MediaRecorder.isTypeSupported(m)) ?? "";
+}
+
+function readVideoDuration(file: File): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const v = document.createElement("video");
+    v.preload = "metadata";
+    v.onloadedmetadata = () => {
+      const d = v.duration;
+      URL.revokeObjectURL(url);
+      if (!Number.isFinite(d) || d <= 0) reject(new Error("Could not read that video."));
+      else resolve(d);
+    };
+    v.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("That file doesn't look like a playable video."));
+    };
+    v.src = url;
+  });
 }
 
 function whenLabel(iso: string): string {
@@ -69,9 +91,11 @@ export default function Recorder({
   const [previewReady, setPreviewReady] = useState(false);
   const [progress, setProgress] = useState(0);
   const [others, setOthers] = useState<{ name: string; at: string }[] | null>(null);
+  const [fromFile, setFromFile] = useState(false);
 
   const liveRef = useRef<HTMLVideoElement>(null);
   const playbackRef = useRef<HTMLVideoElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -156,6 +180,7 @@ export default function Recorder({
         setStage("intro");
         return;
       }
+      setFromFile(false);
       setBlob(b);
       setBlobUrl(URL.createObjectURL(b));
       setDuration(seconds);
@@ -193,6 +218,15 @@ export default function Recorder({
     const v = playbackRef.current;
     if (!v) return;
     if (v.duration !== Infinity) {
+      if (Number.isFinite(v.duration) && v.duration > 0) {
+        const d = v.duration;
+        setDuration(d);
+        setTrim(([s, e]) => {
+          const start = Math.min(s, Math.max(0, d - minDuration));
+          const end = Math.min(Math.max(e, start + minDuration), d);
+          return [start, end];
+        });
+      }
       setPreviewReady(true);
       return;
     }
@@ -266,7 +300,49 @@ export default function Recorder({
     setPreviewReady(false);
     setProgress(0);
     setError(null);
+    if (fromFile) {
+      setFromFile(false);
+      setStage("intro");
+      return;
+    }
     void enableCamera();
+  }
+
+  async function onFileChosen(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+
+    setError(null);
+    const looksVideo =
+      file.type.startsWith("video/") || /\.(mp4|mov|webm|m4v|avi|mkv)$/i.test(file.name);
+    if (!looksVideo) {
+      setError("Please choose a video file.");
+      return;
+    }
+    if (file.size > MAX_FILE_BYTES) {
+      setError("That video is too large. Please choose one under 128 MB, or trim it first.");
+      return;
+    }
+
+    try {
+      const seconds = await readVideoDuration(file);
+      if (seconds < minDuration) {
+        setError("That was too short, please choose a video of at least a second.");
+        return;
+      }
+      stopStream();
+      setFromFile(true);
+      setBlob(file);
+      setBlobUrl(URL.createObjectURL(file));
+      setDuration(seconds);
+      setTrim([0, Math.min(seconds, maxDuration)]);
+      setPlaying(false);
+      setPreviewReady(false);
+      setStage("review");
+    } catch (err) {
+      setError((err as Error).message);
+    }
   }
 
   async function submit() {
@@ -275,13 +351,22 @@ export default function Recorder({
       setError("Please add your name so they know who it's from.");
       return;
     }
+    const length = trim[1] - trim[0];
+    if (length > maxDuration) {
+      setError(`Please trim your message to ${maxDuration} seconds or less.`);
+      return;
+    }
     setError(null);
     setProgress(0);
     setStage("uploading");
     try {
-      const ext = blob.type.includes("mp4") ? "mp4" : "webm";
-      const file = new File([blob], `clip.${ext}`, { type: blob.type.split(";")[0] || `video/${ext}` });
-      const res = await startUpload([file], { token });
+      const uploadFile =
+        blob instanceof File
+          ? blob
+          : new File([blob], `clip.${blob.type.includes("mp4") ? "mp4" : "webm"}`, {
+              type: blob.type.split(";")[0] || "video/webm",
+            });
+      const res = await startUpload([uploadFile], { token });
       const uploaded = res?.[0];
       if (!uploaded) throw new Error("Upload failed");
       const r = await fetch("/api/submit", {
@@ -357,17 +442,30 @@ export default function Recorder({
       <div className="card center">
         <p className="lead">Record a short video message.</p>
         <p>
-          Aim for <strong>{targetMin}–{targetMax} seconds</strong>. Short and heartfelt is perfect (it stops
-          automatically at {maxDuration}).
+          Aim for <strong>
+            {targetMin}–{targetMax} seconds
+          </strong>
+          . You can record with your camera, or choose a video you already have. The message that gets
+          saved can be at most {maxDuration} seconds.
         </p>
         {alreadySubmitted && (
-          <p className="note">You&apos;ve already sent a message. Recording again will replace it.</p>
+          <p className="note">You&apos;ve already sent a message. Sending again will replace it.</p>
         )}
         {error && <p className="err">{error}</p>}
         <button className="btn primary big" onClick={enableCamera}>
           Turn on camera
         </button>
-        <p className="hint">Your browser will ask to use your camera and microphone.</p>
+        <button className="btn big" type="button" onClick={() => fileInputRef.current?.click()}>
+          Choose a video
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="video/*"
+          hidden
+          onChange={(e) => void onFileChosen(e)}
+        />
+        <p className="hint">Recording uses your camera and microphone. Choosing a file uses one from your phone or computer.</p>
       </div>
     );
   }
@@ -462,10 +560,17 @@ export default function Recorder({
         }}
       />
 
-      {trim[1] - trim[0] > targetMax && (
+      {trim[1] - trim[0] > maxDuration ? (
         <p className="note">
-          That&apos;s a long one! Try trimming it to under {targetMax} seconds so everyone&apos;s message gets its moment.
+          Please trim this to {maxDuration} seconds or less before sending.
         </p>
+      ) : (
+        trim[1] - trim[0] > targetMax && (
+          <p className="note">
+            That&apos;s a long one! Try trimming it to under {targetMax} seconds so everyone&apos;s message gets
+            its moment.
+          </p>
+        )
       )}
 
       <label className="field">
@@ -494,7 +599,11 @@ export default function Recorder({
           <button className="btn" onClick={tryAgain}>
             Try Again
           </button>
-          <button className="btn primary" onClick={submit}>
+          <button
+            className="btn primary"
+            onClick={submit}
+            disabled={trim[1] - trim[0] > maxDuration}
+          >
             Use This Video
           </button>
         </div>

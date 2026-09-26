@@ -18,14 +18,17 @@ export async function POST(req: Request) {
   if (!parsed.success) return Response.json({ error: "Invalid request" }, { status: 400 });
   const b = parsed.data;
 
-  // +1s tolerance: the browser's timer can run slightly past the hard stop.
+  // Cap the selected length (not absolute end time) so a window later in a
+  // longer uploaded file is allowed. +1s tolerance for timer/rounding drift.
   const limit = EVENT.maxDuration + 1;
   const length = b.trimEnd - b.trimStart;
-  if (b.trimEnd > limit + 1 || length > limit) {
+  if (b.trimEnd <= b.trimStart) {
+    return Response.json({ error: "Invalid trim range" }, { status: 400 });
+  }
+  if (length > limit) {
     return Response.json({ error: `Messages can be at most ${EVENT.maxDuration} seconds` }, { status: 400 });
   }
-  const trimEnd = Math.min(b.trimEnd, limit);
-  if (trimEnd - b.trimStart < EVENT.minDuration - 0.01) {
+  if (length < EVENT.minDuration - 0.01) {
     return Response.json({ error: "Clip too short" }, { status: 400 });
   }
 
@@ -40,7 +43,7 @@ export async function POST(req: Request) {
     fileKey: b.fileKey,
     fileUrl,
     trimStart: b.trimStart,
-    trimEnd,
+    trimEnd: b.trimEnd,
   });
   if (!saved) return Response.json({ error: "Invalid link" }, { status: 404 });
 

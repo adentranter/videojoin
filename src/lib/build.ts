@@ -51,8 +51,9 @@ async function download(url: string, dest: string) {
 
 async function normalize(src: string, dest: string, clip: Submission) {
   const start = Math.max(0, clip.trimStart ?? 0);
-  const end = Math.min(EVENT.maxDuration + 1, clip.trimEnd ?? EVENT.maxDuration);
-  const dur = Math.max(0.5, end - start);
+  const end = Math.max(start, clip.trimEnd ?? start + EVENT.maxDuration);
+  // Cap extracted length, not absolute end — uploads may trim a window later than 30s.
+  const dur = Math.max(0.5, Math.min(EVENT.maxDuration + 1, end - start));
   const audio = await hasAudio(src);
 
   const vf =
